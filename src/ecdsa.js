@@ -2,12 +2,17 @@ var sec = require('./jsbn/sec');
 var util = require('./util');
 var SecureRandom = require('./jsbn/rng');
 var BigInteger = require('./jsbn/jsbn');
+var SHA256 = require('./crypto-js/crypto').SHA256;
 
 var ECPointFp = require('./jsbn/ec').ECPointFp;
 
 var rng = new SecureRandom();
 var ecparams = sec("secp256k1");
 var P_OVER_FOUR = null;
+
+// Load the crypto module when running in a nodejs envirnoment.
+// Uses a non plain string expression to make browserify ignore it.
+var nodejs_crypto = (typeof window == 'undefined') && require(''+'crypto');
 
 function implShamirsTrick(P, k, Q, l)
 {
@@ -43,13 +48,32 @@ var ECDSA = {
       .add(BigInteger.ONE)
     ;
   },
+  getRandomK: function(hash, priv) {
+    var limit = ecparams.getN(), random;
+
+    if (typeof window == 'object' && window.crypto && window.crypto.getRandomValues) {
+      var randbuff = new Uint8Array(32);
+      window.crypto.getRandomValues(randbuff);
+      random = Array.apply([], randbuff);
+    } else if (nodejs_crypto) {
+      random = Array.apply([], nodejs_crypto.randomBytes(32));
+    } else {
+      random = rng.nextBytes(32);
+    }
+
+    var h = SHA256(hash.concat(priv.toByteArrayUnsigned()).concat(random), { asBytes: true });
+
+    return BigInteger.fromByteArrayUnsigned(h)
+      .mod(limit.subtract(BigInteger.ONE))
+      .add(BigInteger.ONE);
+  },
   sign: function (hash, priv) {
     var d = priv;
     var n = ecparams.getN();
     var e = BigInteger.fromByteArrayUnsigned(hash);
 
     do {
-      var k = ECDSA.getBigRandom(n);
+      var k = ECDSA.getRandomK(hash, priv);
       var G = ecparams.getG();
       var Q = G.multiply(k);
       var r = Q.getX().toBigInteger().mod(n);
