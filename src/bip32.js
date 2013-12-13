@@ -115,7 +115,7 @@ BIP32key.prototype.createPublicKey = function(bytes) {
   var newkey = new key();
 
   // Delete generated private key since it's useless for us
-  delete key.priv;
+  delete newkey.priv;
 
   // Set our own public key
   newkey.setPub(bytes);
