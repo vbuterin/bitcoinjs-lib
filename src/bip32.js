@@ -81,18 +81,17 @@ BIP32key.prototype.ckd = function(i) {
     I = Crypto.HMAC(Crypto.SHA512,blob,this.chaincode,{ asBytes: true })
 
     if (this.type == 'priv') {
-        Ikey = Bitcoin.BigInteger.fromByteArrayUnsigned(I.slice(0,32))
+        var Ikey = Bitcoin.BigInteger.fromByteArrayUnsigned(I.slice(0,32))
         newkey = new key(this.key.priv.add(Ikey).mod(ecparams.getN()))
         newkey.compressed = true
-        fingerprint = util.sha256ripe160(this.key.getPub()).slice(0,4)
     }
     else {
-        bytes = ECPointFp.decodeFrom(ecparams.getCurve(),this.key.getPub())
+        var bytes = ECPointFp.decodeFrom(ecparams.getCurve(),this.key.getPub())
                           .add(new key(I.slice(0,32).concat([1])).getPubPoint())
                           .getEncoded(true);
-        fingerprint = util.sha256ripe160(this.key).slice(0,4)
         newkey = this.createPublicKey(bytes);
     }
+    fingerprint = util.sha256ripe160(this.key.getPub()).slice(0,4)
     return new BIP32key({
         vbytes: this.vbytes,
         type: this.type,
