@@ -48,7 +48,7 @@ BIP32key.prototype.deserialize = function(str) {
         fingerprint: bytes.slice(5,9),
         i: util.bytesToNum(bytes.slice(9,13).reverse()),
         chaincode: bytes.slice(13,45),
-        key: type == 'priv' ? new key(bytes.slice(46,78).concat([1])) : bytes.slice(45,78)
+        key: type == 'priv' ? new key(bytes.slice(46,78).concat([1])) : this.createPublicKey(bytes.slice(45,78))
     })
 }
 
@@ -59,7 +59,7 @@ BIP32key.prototype.serialize = function() {
                 util.numToBytes(this.i,4).reverse(),
                 this.chaincode,
                 this.type == 'priv' ? [0].concat(this.key.export('bytes').slice(0,32))
-                                    : this.key)
+                                    : this.key.getPub())
     var checksum = Crypto.SHA256(Crypto.SHA256(bytes,{asBytes: true}), {asBytes: true})
                          .slice(0,4)
     return base58.encode(bytes.concat(checksum))
@@ -69,9 +69,8 @@ BIP32key.prototype.ckd = function(i) {
     var priv, pub, newkey, fingerprint, blob, I;
     if (this.type == 'priv') {
         priv = this.key.export('bytes')
-        pub = this.key.getPub()
     }
-    else pub = this.key
+    pub = this.key.getPub()
 
     if (i >= 2147483648) {
         if (!priv) throw new Error("Can't do private derivation on public key!")
@@ -88,10 +87,11 @@ BIP32key.prototype.ckd = function(i) {
         fingerprint = util.sha256ripe160(this.key.getPub()).slice(0,4)
     }
     else {
-        newkey = ECPointFp.decodeFrom(ecparams.getCurve(),this.key)
+        bytes = ECPointFp.decodeFrom(ecparams.getCurve(),this.key.getPub())
                           .add(new key(I.slice(0,32).concat([1])).getPubPoint())
                           .getEncoded(true);
         fingerprint = util.sha256ripe160(this.key).slice(0,4)
+        newkey = this.createPublicKey(bytes);
     }
     return new BIP32key({
         vbytes: this.vbytes,
@@ -108,6 +108,21 @@ BIP32key.prototype.clone = function() {
     return new BIP32key(this);
 }
 
+BIP32key.prototype.createPublicKey = function(bytes) {
+  // ECkey doesn't allow initializing a key with just the public
+  // information, so we create one here by using the exposed api.
+
+  // Create an empty key
+  var newkey = new key();
+
+  // Delete generated private key since it's useless for us
+  delete key.priv;
+
+  // Set our own public key
+  newkey.setPub(bytes);
+  return newkey;
+}
+
 BIP32key.prototype.privtopub = BIP32key.prototype.getPub = function() {
     if (this.type == 'pub') return this.clone()
     return new BIP32key({
@@ -117,7 +132,7 @@ BIP32key.prototype.privtopub = BIP32key.prototype.getPub = function() {
         fingerprint: this.fingerprint,
         i: this.i,
         chaincode: this.chaincode,
-        key: this.key.getPub()
+        key: this.createPublicKey(this.key.getPub())
     })
 }
 
