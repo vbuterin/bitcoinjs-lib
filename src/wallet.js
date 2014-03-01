@@ -2,20 +2,30 @@ var Script = require('./script');
 var ECKey = require('./eckey').ECKey;
 var conv = require('./convert');
 var util = require('./util');
+var assert = require('assert');
 
 var BigInteger = require('./jsbn/jsbn');
-
-var BIP32key = require('./bip32');
 
 var Transaction = require('./transaction').Transaction;
 var TransactionIn = require('./transaction').TransactionIn;
 var TransactionOut = require('./transaction').TransactionOut;
+var HDWallet = require('./hdwallet.js')
 
 var SecureRandom = require('./jsbn/rng');
 var rng = new SecureRandom();
 
-var Wallet = function (seed) {
-    if (!(this instanceof Wallet)) { return new Wallet(seed); }
+var Wallet = function (seed, options) {
+    if (!(this instanceof Wallet)) { return new Wallet(seed, options); }
+
+    var options = options || {}
+    var network = options.network || 'Bitcoin'
+
+    // HD first-level child derivation method (i.e. public or private child key derivation)
+    // NB: if not specified, defaults to private child derivation
+    // Also see https://bitcointalk.org/index.php?topic=405179.msg4415254#msg4415254
+    this.derivationMethod = options.derivationMethod || 'private'
+    assert(this.derivationMethod == 'public' || this.derivationMethod == 'private',
+        "derivationMethod must be either 'public' or 'private'");
 
     // Stored in a closure to make accidental serialization less likely
     var keys = [];
@@ -27,26 +37,29 @@ var Wallet = function (seed) {
 
     // Transaction output data
     this.outputs = {};
-  
+
     // Make a new master key
-    this.newMasterKey = function(seed) {
+    this.newMasterKey = function(seed, network) {
         if (!seed) {
             var seedBytes = new Array(32);
             rng.nextBytes(seedBytes);
             seed = conv.bytesToString(seedBytes)
         }
-        masterkey = new BIP32key(seed);
+        masterkey = new HDWallet(seed, network);
         keys = []
     }
-    this.newMasterKey(seed)
+    this.newMasterKey(seed, network)
 
     // Add a new address
     this.generateAddress = function() {
-        keys.push(masterkey.ckd(keys.length).key)
+        if(this.derivationMethod == 'private')
+            keys.push(masterkey.derivePrivate(keys.length));
+        else
+            keys.push(masterkey.derive(keys.length));
         this.addresses.push(keys[keys.length-1].getBitcoinAddress().toString())
         return this.addresses[this.addresses.length - 1]
     }
-    
+
     // Processes a transaction object
     // If "verified" is true, then we trust the transaction as "final"
     this.processTx = function(tx, verified) {
@@ -109,9 +122,9 @@ var Wallet = function (seed) {
             if (totalval >= value) return utxo.slice(0,i+1);
         }
         throw ("Not enough money to send funds including transaction fee. Have: "
-                     + (totalval / 100000000) + ", needed: " + (value / 100000000)); 
+                     + (totalval / 100000000) + ", needed: " + (value / 100000000));
     }
-    
+
     this.mkSend = function(to, value, fee) {
         var utxo = this.getUtxoToPay(value + fee)
         var sum = utxo.reduce(function(t,o) { return t + o.value },0),
